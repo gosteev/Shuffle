@@ -179,11 +179,16 @@ var Shuffle = function( element, options ) {
   $.extend( this, Shuffle.options, options, Shuffle.settings );
 
   this.$el = $(element);
+  this.oldHeight = '';
+  this.newHeight = '';
   this.element = element;
   this.unique = 'shuffle_' + id++;
 
   this._fire( Shuffle.EventType.LOADING );
   this._init();
+
+  // makes user variable global to be able to use it in "_layout" func
+  Shuffle.options.sequential = this.sequential; 
 
   // Dispatch the done event asynchronously so that people can bind to it after
   // Shuffle has been initialized.
@@ -219,7 +224,8 @@ Shuffle.ClassName = {
 // Overrideable options
 Shuffle.options = {
   group: ALL_ITEMS, // Initial filter group.
-  speed: 250, // Transition/animation speed (milliseconds).
+  speedTransition: 250, // Transition speed (milliseconds).
+  speedAnimation: 250, // Animation speed (milliseconds).
   easing: 'ease-out', // CSS easing function to use.
   itemSelector: '', // e.g. '.picture-item'.
   sizer: null, // Sizer element. Use an element to determine the size of columns and gutters.
@@ -231,7 +237,8 @@ Shuffle.options = {
   throttle: throttle, // By default, shuffle will throttle resize events. This can be changed or removed.
   throttleTime: 300, // How often shuffle can be called on resize (in milliseconds).
   sequentialFadeDelay: 150, // Delay between each item that fades in when adding items.
-  supported: CAN_TRANSITION_TRANSFORMS // Whether to use transforms or absolute positioning.
+  supported: CAN_TRANSITION_TRANSFORMS, // Whether to use transforms or absolute positioning.
+  sequential: false // Height animation and item transition will be sequential
 };
 
 
@@ -429,7 +436,7 @@ Shuffle.prototype._init = function() {
   if ( this.supported ) {
     defer(function() {
       this._setTransitions();
-      this.element.style[ TRANSITION ] = 'height ' + this.speed + 'ms ' + this.easing;
+      this.element.style[ TRANSITION ] = 'height ' + this.speedTransition + 'ms ' + this.easing;
     }, this);
   }
 };
@@ -624,8 +631,8 @@ Shuffle.prototype._updateItemCount = function() {
  * @private
  */
 Shuffle.prototype._setTransition = function( element ) {
-  element.style[ TRANSITION ] = CSS_TRANSFORM + ' ' + this.speed + 'ms ' +
-    this.easing + ', opacity ' + this.speed + 'ms ' + this.easing;
+  element.style[ TRANSITION ] = CSS_TRANSFORM + ' ' + this.speedAnimation + 'ms ' +
+    this.easing + ', opacity ' + this.speedTransition + 'ms ' + this.easing;
 };
 
 
@@ -756,6 +763,16 @@ Shuffle.prototype._setColumns = function( theContainerWidth ) {
   this.colWidth = columnWidth;
 };
 
+
+/**
+ * Get old and new height of block if sequental mode on
+ */
+Shuffle.prototype._getPos = function() {
+  Shuffle.oldHeight = this.$el.height();
+  Shuffle.newHeight = arrayMax( this.positions );
+};
+
+
 /**
  * Adjust the height of the grid
  */
@@ -801,6 +818,7 @@ Shuffle.prototype._resetCols = function() {
  *     Because jQuery collection are always ordered in DOM order, we can't pass a jq collection.
  * @param {boolean} [isOnlyPosition=false] If true this will position the items with zero opacity.
  */
+
 Shuffle.prototype._layout = function( items, isOnlyPosition ) {
   each(items, function( item ) {
     this._layoutItem( item, !!isOnlyPosition );
@@ -808,10 +826,37 @@ Shuffle.prototype._layout = function( items, isOnlyPosition ) {
 
   // `_layout` always happens after `_shrink`, so it's safe to process the style
   // queue here with styles from the shrink method.
-  this._processStyleQueue();
 
-  // Adjust the height of the container.
-  this._setContainerSize();
+  if (Shuffle.options.sequential){
+    this._getPos();
+
+    // this needs because "this." of setTimeout func reffers to global object 
+    var _this = this;
+    if (Shuffle.newHeight > Shuffle.oldHeight){
+      // if new height of block is bigger than old
+      // first, make expanding animation
+      // second, add new items
+
+      this._setContainerSize();
+      setTimeout(function(){
+        _this._processStyleQueue();
+      }, Shuffle.options.speedAnimation);
+
+    } else {
+      // otherwise
+      
+      this._processStyleQueue();
+      setTimeout(function(){
+        _this._setContainerSize();
+      }, Shuffle.options.speedAnimation);
+
+    }
+  } else {
+     // no sequential option
+    this._processStyleQueue();
+    this._setContainerSize();
+  }
+  
 };
 
 
@@ -1108,7 +1153,7 @@ Shuffle.prototype._startItemAnimation = function( $item, styles, callfront, call
   // Use jQuery to animate left/top
   } else {
     // Save the deferred object which jQuery returns.
-    var anim = $item.stop( true ).animate( styles, this.speed, 'swing', callback );
+    var anim = $item.stop( true ).animate( styles, this.speedTransition, 'swing', callback );
     // Push the animation to the list of pending animations.
     this._animations.push( anim.promise() );
   }
